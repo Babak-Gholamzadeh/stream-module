@@ -46,6 +46,15 @@ class EventEmitter {
   off(eventName, listener) {
     return this.removeListener(eventName, listener);
   }
+
+  removeAllListeners(eventName) {
+    if (eventName === undefined) {
+      this._events = {};
+      return this;
+    }
+    delete this._events[eventName];
+    return this;
+  }
   
 }
 
