@@ -27,6 +27,25 @@ class EventEmitter {
     }
     return true;
   }
+
+  removeListener(eventName, listener) {
+    const events = this._events;
+    if (events[eventName]) {
+      for (let i = events[eventName].length - 1; i >= 0; i--) {
+        if (events[eventName][i] === listener) {
+          events[eventName].splice(i, 1);
+          break;
+        }
+      }
+      if (events[eventName].length === 0)
+        delete events[eventName];
+    }
+    return this;
+  }
+
+  off(eventName, listener) {
+    return this.removeListener(eventName, listener);
+  }
   
 }
 
