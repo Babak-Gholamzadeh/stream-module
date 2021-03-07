@@ -15,10 +15,26 @@ class EventEmitter {
     return this.addListener(eventName, listener);
   }
 
+  once(eventName, listener) {
+    return this.addListener(eventName, this._onceWrap(eventName, listener));
+  }
+
+  _onceWrap(eventName, listener) {
+    const state = { eventName, listener, wrapFn: null };
+    state.wrapFn = this._onceWrapper.bind(this, state);
+    state.wrapFn.listener = listener;
+    return state.wrapFn;
+  }
+
+  _onceWrapper({eventName, listener, wrapFn}, ...args) {
+    this.removeListener(eventName, wrapFn);
+    listener.apply(this, args);
+  }
+
   emit(eventName, ...args) {
     const events = this._events;
     if (events[eventName]) {
-      const listeners = events[eventName];
+      const listeners = this._arrayClone(events[eventName]);
       for (let i = 0; i < listeners.length; i++) {
         listeners[i].apply(this, args);
       }
@@ -28,11 +44,15 @@ class EventEmitter {
     return true;
   }
 
+  _arrayClone(arr) {
+    return arr.map(v => v);
+  }
+
   removeListener(eventName, listener) {
     const events = this._events;
     if (events[eventName]) {
       for (let i = events[eventName].length - 1; i >= 0; i--) {
-        if (events[eventName][i] === listener) {
+        if (events[eventName][i] === listener || events[eventName][i].listener === listener) {
           events[eventName].splice(i, 1);
           break;
         }
