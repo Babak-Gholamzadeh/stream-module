@@ -75,7 +75,14 @@ class EventEmitter {
     delete this._events[eventName];
     return this;
   }
-  
+
+  listenerCount(eventName) {
+    const events = this._events;
+    if (events[eventName])
+      return events[eventName].length
+    return 0;
+  }
+
 }
 
 module.exports = EventEmitter;
