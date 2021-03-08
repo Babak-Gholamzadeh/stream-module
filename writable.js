@@ -8,6 +8,7 @@ class WritableState {
     this.writecb = null;
     this.writelen = 0;
     this.needDrain = false;
+    this.corked = 0;
   }
 }
 class Writable extends EventEmitter {
@@ -28,7 +29,7 @@ class Writable extends EventEmitter {
     if (!ret)
       state.needDrain = true;
 
-    if (state.writing) {
+    if (state.writing || state.corked) {
       state.buffered.push({ chunk, callback });
     } else {
       state.writing = true;
@@ -66,6 +67,9 @@ class Writable extends EventEmitter {
 
   _clearBuffer() {
     const state = this._writableState;
+    if (state.corked)
+      return;
+
     const { chunk, callback } = state.buffered.shift();
     this._doWrite(chunk, callback);
   }
@@ -77,6 +81,19 @@ class Writable extends EventEmitter {
     state.writelen = chunk.length;
     this._write(chunk, this._onwrite.bind(this));
   }
+
+  cork() {
+    this._writableState.corked++;
+  }
+
+  uncork() {
+    const state = this._writableState;
+    if (state.corked) {
+      state.corked--;
+      if (!state.writing)
+        this._clearBuffer();
+    }
+  }  
 
 }
 
