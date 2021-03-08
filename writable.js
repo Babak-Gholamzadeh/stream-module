@@ -26,7 +26,23 @@ class Writable {
   _onwrite() {
     const state = this._writableState;
     state.writing = false;
+    if (state.buffered.length) {
+      this._clearBuffer();
+    }
   }
+
+  _clearBuffer() {
+    const state = this._writableState;
+    const chunk = state.buffered.shift();
+    this._doWrite(chunk);
+  }
+
+  _doWrite(chunk) {
+    const state = this._writableState;
+    state.writing = true;
+    this._write(chunk, this._onwrite.bind(this));
+  }
+
 }
 
 module.exports = Writable;
