@@ -17,6 +17,9 @@ class WritableState {
     this.writelen = 0;
     this.needDrain = false;
     this.corked = 0;
+this.ending = false;
+this.ended = false;
+this.finished = false;
   }
 }
 class Writable extends EventEmitter {
@@ -53,6 +56,9 @@ class Writable extends EventEmitter {
       }
     }
 
+    if (state.ending)
+      throw new Error('cannot write after stream has already been ended');
+  
     if (typeof this._write !== 'function')
       throw new Error('_write() must to be implemented!');
 
@@ -88,7 +94,7 @@ class Writable extends EventEmitter {
       this._clearBuffer();
     }
 
-    if (state.needDrain && state.length === 0) {
+    if (state.needDrain && state.length === 0 && !state.ending) {
       state.needDrain = false;
       this.emit('drain');
     }
@@ -96,6 +102,8 @@ class Writable extends EventEmitter {
     if (typeof cb === 'function') {
       cb();
     }
+
+    this._finishMaybe();
   }
 
   _clearBuffer() {
@@ -135,6 +143,39 @@ class Writable extends EventEmitter {
     return this;
   }
 
+  end(chunk, encoding) {
+    const state = this._writableState;
+
+    if (chunk !== null && chunk !== undefined)
+      this.write(chunk, encoding);
+
+    if (state.corked) {
+      state.corked = 1;
+      this.uncork();
+    }
+  
+    state.ending = true;
+    this._finishMaybe();
+    state.ended = true;
+  }
+
+  _finishMaybe() {
+    const state = this._writableState;
+    if (this._needFinish()) {
+      state.finished = true;
+      this.emit('finish');
+    }
+  }
+
+  _needFinish() {
+    const state = this._writableState;
+    return (
+      state.ending &&
+      state.length === 0 &&
+      !state.finished &&
+      !state.writing
+    );
+  }
 }
 
 module.exports = Writable;
