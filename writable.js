@@ -5,6 +5,8 @@ class WritableState {
     decodeStrings = false,
     defaultEncoding = 'utf8',
     highWaterMark = 16 * 1024,
+    autoDestroy = true,
+    emitClose = true,
   }) {
     this.objectMode = objectMode;
     this.decodeStrings = decodeStrings;
@@ -17,9 +19,13 @@ class WritableState {
     this.writelen = 0;
     this.needDrain = false;
     this.corked = 0;
-this.ending = false;
-this.ended = false;
-this.finished = false;
+    this.ending = false;
+    this.ended = false;
+    this.finished = false;
+    this.autoDestroy = autoDestroy;
+    this.destroyed = false;
+    this.emitClose = emitClose;
+    this.closed = false;
   }
 }
 class Writable extends EventEmitter {
@@ -58,6 +64,9 @@ class Writable extends EventEmitter {
 
     if (state.ending)
       throw new Error('cannot write after stream has already been ended');
+    
+    if (state.destroyed)
+      throw new Error('cannot write after stream has already been destroyed');
   
     if (typeof this._write !== 'function')
       throw new Error('_write() must to be implemented!');
@@ -94,7 +103,7 @@ class Writable extends EventEmitter {
       this._clearBuffer();
     }
 
-    if (state.needDrain && state.length === 0 && !state.ending) {
+    if (state.needDrain && state.length === 0 && !state.ending && !state.destroyed) {
       state.needDrain = false;
       this.emit('drain');
     }
@@ -108,7 +117,7 @@ class Writable extends EventEmitter {
 
   _clearBuffer() {
     const state = this._writableState;
-    if (state.corked)
+    if (state.corked || state.destroyed)
       return;
 
     const { chunk, encoding, callback } = state.buffered.shift();
@@ -154,9 +163,13 @@ class Writable extends EventEmitter {
       this.uncork();
     }
   
-    state.ending = true;
-    this._finishMaybe();
-    state.ended = true;
+    if (state.destroyed) {
+      throw new Error('write after destroyed');
+    } else {
+      state.ending = true;
+      this._finishMaybe();
+      state.ended = true;
+    }
   }
 
   _finishMaybe() {
@@ -164,6 +177,9 @@ class Writable extends EventEmitter {
     if (this._needFinish()) {
       state.finished = true;
       this.emit('finish');
+      if (state.autoDestroy) {
+        this.destroy();
+      }
     }
   }
 
@@ -176,6 +192,22 @@ class Writable extends EventEmitter {
       !state.writing
     );
   }
+
+  destroy() {
+    const state = this._writableState;
+    state.destroyed = true;
+    if (state.emitClose)
+      this._close();
+    return this;
+  }
+
+  _close() {
+    this._writableState.closed = true;
+    process.nextTick(() => {
+      this.emit('close');
+    });
+  }
+
 }
 
 module.exports = Writable;
