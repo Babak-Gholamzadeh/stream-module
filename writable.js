@@ -26,6 +26,7 @@ class WritableState {
     this.destroyed = false;
     this.emitClose = emitClose;
     this.closed = false;
+    this.errored = null;
   }
 }
 class Writable extends EventEmitter {
@@ -62,14 +63,16 @@ class Writable extends EventEmitter {
       }
     }
 
-    if (state.ending)
-      throw new Error('cannot write after stream has already been ended');
-    
-    if (state.destroyed)
-      throw new Error('cannot write after stream has already been destroyed');
-  
-    if (typeof this._write !== 'function')
-      throw new Error('_write() must to be implemented!');
+    if (state.ending) {
+      state.errored = new Error('cannot write after stream has already been ended');
+    } else if (state.destroyed) {
+      state.errored = new Error('cannot write after stream has already been destroyed');
+    }
+    if(state.errored) {
+      if (typeof callback === 'function')
+        process.nextTick(callback, state.errored);
+      return false;
+    }
 
     const len = (state.objectMode ? 1 : chunk.length);
     state.length += len;
@@ -89,7 +92,7 @@ class Writable extends EventEmitter {
     return ret;
   }
 
-  _onwrite() {
+  _onwrite(err) {
     const state = this._writableState;
 
     const cb = state.writecb;
@@ -99,17 +102,18 @@ class Writable extends EventEmitter {
     state.length -= state.writelen;
     state.writelen = 0;
 
-    if (state.buffered.length) {
-      this._clearBuffer();
-    }
-
-    if (state.needDrain && state.length === 0 && !state.ending && !state.destroyed) {
-      state.needDrain = false;
-      this.emit('drain');
-    }
-
-    if (typeof cb === 'function') {
-      cb();
+    if (err) {
+      state.errored = err;
+      throw state.errored;
+    } else {
+      if (state.buffered.length)
+        this._clearBuffer();
+      if (state.needDrain && state.length === 0 && !state.ending && !state.destroyed) {
+        state.needDrain = false;
+        this.emit('drain');
+      }
+      if (typeof cb === 'function')
+        cb();
     }
 
     this._finishMaybe();
@@ -152,8 +156,17 @@ class Writable extends EventEmitter {
     return this;
   }
 
-  end(chunk, encoding) {
+  end(chunk, encoding, cb) {
     const state = this._writableState;
+
+    if (typeof chunk === 'function') {
+      cb = chunk;
+      chunk = null;
+      encoding = null;
+    } else if (typeof encoding === 'function') {
+      cb = encoding;
+      encoding = null;
+    }
 
     if (chunk !== null && chunk !== undefined)
       this.write(chunk, encoding);
@@ -164,7 +177,10 @@ class Writable extends EventEmitter {
     }
   
     if (state.destroyed) {
-      throw new Error('write after destroyed');
+      state.errored = new Error('write after destroyed');
+      if (typeof cb === 'function') {
+        process.nextTick(cb, state.errored);
+      }
     } else {
       state.ending = true;
       this._finishMaybe();
@@ -188,16 +204,29 @@ class Writable extends EventEmitter {
     return (
       state.ending &&
       state.length === 0 &&
+      !state.errored &&
       !state.finished &&
       !state.writing
     );
   }
 
-  destroy() {
+  destroy(err, cb) {
     const state = this._writableState;
     state.destroyed = true;
+
+    if (typeof cb === 'function')
+      cb(err);
+
+    if (err) {
+      state.errored = err;
+      this._onError();
+    }
+
     if (state.emitClose)
       this._close();
+
+    this._destroy(state.errored, this._onDestroy.bind(this));
+    
     return this;
   }
 
@@ -208,6 +237,26 @@ class Writable extends EventEmitter {
     });
   }
 
+  _onError() {
+    process.nextTick(err => {
+      this.emit('error', err);
+    }, this._writableState.errored);
+  }
+
+  _write() {
+    throw new Error('_write() must be implemented!');
+  }
+
+  _destroy(err, cb) {
+    cb(err);
+  }
+
+  _onDestroy(err) {
+    if (err) {
+      this._writableState.errored = err;
+      this._onError();
+    }
+  }
 }
 
 module.exports = Writable;
