@@ -12,6 +12,7 @@ class WritableState {
     this.decodeStrings = decodeStrings;
     this.defaultEncoding = defaultEncoding;
     this.highWaterMark = highWaterMark;
+    this.constructed = true;
     this.length = 0;
     this.buffered = [];
     this.writing = false;
@@ -33,6 +34,21 @@ class Writable extends EventEmitter {
   constructor(options = {}) {
     super();
     this._writableState = new WritableState(options);
+
+    if (typeof this._construct === 'function') {
+      const state = this._writableState;
+      state.constructed = false;
+      process.nextTick(() => {
+        this._construct(err => {
+          state.constructed = true;
+          if (err)
+            state.errored = err;
+          if (!state.writing)
+            this._clearBuffer();
+          this._finishMaybe();
+        });
+      });
+    }
   }
 
   write(chunk, encoding, callback) {
@@ -80,7 +96,7 @@ class Writable extends EventEmitter {
     if (!ret)
       state.needDrain = true;
 
-    if (state.writing || state.corked) {
+    if (state.writing || state.corked || !state.constructed) {
       state.buffered.push({ chunk, encoding, callback });
     } else {
       state.writing = true;
@@ -121,7 +137,7 @@ class Writable extends EventEmitter {
 
   _clearBuffer() {
     const state = this._writableState;
-    if (state.corked || state.destroyed)
+    if (state.corked || state.destroyed || !state.constructed)
       return;
 
     const { chunk, encoding, callback } = state.buffered.shift();
@@ -203,6 +219,7 @@ class Writable extends EventEmitter {
     const state = this._writableState;
     return (
       state.ending &&
+      state.constructed &&
       state.length === 0 &&
       !state.errored &&
       !state.finished &&
