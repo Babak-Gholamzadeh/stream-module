@@ -1,6 +1,14 @@
 const EventEmitter = require('./events');
 class WritableState {
-  constructor({ highWaterMark = 16 * 1024 }) {
+  constructor({
+    objectMode = false,
+    decodeStrings = false,
+    defaultEncoding = 'utf8',
+    highWaterMark = 16 * 1024,
+  }) {
+    this.objectMode = objectMode;
+    this.decodeStrings = decodeStrings;
+    this.defaultEncoding = defaultEncoding;
     this.highWaterMark = highWaterMark;
     this.length = 0;
     this.buffered = [];
@@ -17,25 +25,50 @@ class Writable extends EventEmitter {
     this._writableState = new WritableState(options);
   }
 
-  write(chunk, callback) {
+  write(chunk, encoding, callback) {
     const state = this._writableState;
+
+    if (typeof encoding === 'function') {
+      callback = encoding;
+      encoding = state.defaultEncoding;
+    } else {
+      if (!encoding)
+        encoding = state.defaultEncoding;
+      else if (encoding !== 'buffer' && !Buffer.isEncoding(encoding))
+        throw new Error('invalid encoding');
+    }
+
+    if (chunk === null) {
+      throw new Error('chunk cannot be null');
+    } else if (!state.objectMode) {
+      if (typeof chunk === 'string') {
+        if (state.decodeStrings !== false) {
+          chunk = Buffer.from(chunk, encoding);
+          encoding = 'buffer';
+        }
+      } else if (chunk instanceof Buffer) {
+        encoding = 'buffer';
+      } else {
+        throw new Error('invalid types! only string and buffer are accepted');
+      }
+    }
 
     if (typeof this._write !== 'function')
       throw new Error('_write() must to be implemented!');
-    
-    const len = chunk.length;
+
+    const len = (state.objectMode ? 1 : chunk.length);
     state.length += len;
     const ret = state.length < state.highWaterMark;
     if (!ret)
       state.needDrain = true;
 
     if (state.writing || state.corked) {
-      state.buffered.push({ chunk, callback });
+      state.buffered.push({ chunk, encoding, callback });
     } else {
       state.writing = true;
       state.writecb = callback;
       state.writelen = len;
-      this._write(chunk, this._onwrite.bind(this));
+      this._write(chunk, encoding, this._onwrite.bind(this));
     }
 
     return ret;
@@ -70,16 +103,16 @@ class Writable extends EventEmitter {
     if (state.corked)
       return;
 
-    const { chunk, callback } = state.buffered.shift();
-    this._doWrite(chunk, callback);
+    const { chunk, encoding, callback } = state.buffered.shift();
+    this._doWrite(chunk, encoding, callback);
   }
 
-  _doWrite(chunk, callback) {
+  _doWrite(chunk, encoding, callback) {
     const state = this._writableState;
     state.writing = true;
     state.writecb = callback;
-    state.writelen = chunk.length;
-    this._write(chunk, this._onwrite.bind(this));
+    state.writelen = (state.objectMode ? 1 : chunk.length);
+    this._write(chunk, encoding, this._onwrite.bind(this));
   }
 
   cork() {
@@ -93,7 +126,14 @@ class Writable extends EventEmitter {
       if (!state.writing)
         this._clearBuffer();
     }
-  }  
+  }
+
+  setDefaultEncoding(encoding) {
+    if (!Buffer.isEncoding(encoding))
+      throw new Error('invalid encoding');
+    this._writableState.defaultEncoding = encoding;
+    return this;
+  }
 
 }
 
