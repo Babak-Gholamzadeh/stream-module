@@ -35,6 +35,17 @@ class Writable extends EventEmitter {
     super();
     this._writableState = new WritableState(options);
 
+    if (options) {
+      if (typeof options.write === 'function')
+        this._write = options.write;
+
+      if (typeof options.destroy === 'function')
+        this._destroy = options.destroy;
+
+      if (typeof options.construct === 'function')
+        this._construct = options.construct;
+    }
+
     if (typeof this._construct === 'function') {
       const state = this._writableState;
       state.constructed = false;
