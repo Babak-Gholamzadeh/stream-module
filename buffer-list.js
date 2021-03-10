@@ -10,6 +10,17 @@ class BufferList {
     this.tail = null;
     this.length = 0;
   }
+
+  push(data) {
+    const node = new Node(data);
+    if (this.length > 0)
+      this.tail.next = node;
+    else
+      this.head = node;
+    this.tail = node;
+    ++this.length;
+  }
+
 }
 
 module.exports = BufferList;
