@@ -50,6 +50,19 @@ class BufferList {
     return this.head.data;
   }
 
+  concat(n) {
+    if (this.length === 0)
+      return Buffer.alloc(0);
+    const ret = Buffer.allocUnsafe(n >>> 0);
+    let p = this.head;
+    let i = 0;
+    while (p) {
+      Uint8Array.prototype.set.call(ret, p.data, i);
+      i += p.data.length;
+      p = p.next;
+    }
+    return ret;
+  }
 }
 
 module.exports = BufferList;
