@@ -28,6 +28,18 @@ class BufferList {
       this.tail = node;
     ++this.length;
   }
+
+  shift() {
+    if (this.length === 0)
+      return;
+    const ret = this.head.data;
+    if (this.length === 1)
+      this.head = this.tail = null;
+    else
+      this.head = this.head.next;
+    --this.length;
+    return ret;
+  }
 }
 
 module.exports = BufferList;
