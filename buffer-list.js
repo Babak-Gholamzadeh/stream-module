@@ -45,6 +45,11 @@ class BufferList {
     this.head = this.tail = null;
     this.length = 0;
   }
+
+  first() {
+    return this.head.data;
+  }
+
 }
 
 module.exports = BufferList;
