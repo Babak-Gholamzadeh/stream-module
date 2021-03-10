@@ -21,6 +21,13 @@ class BufferList {
     ++this.length;
   }
 
+  unshift(data) {
+    const node = new Node(data, this.head);
+    this.head = node;
+    if (this.length === 0)
+      this.tail = node;
+    ++this.length;
+  }
 }
 
 module.exports = BufferList;
