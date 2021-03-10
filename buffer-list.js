@@ -40,6 +40,11 @@ class BufferList {
     --this.length;
     return ret;
   }
+
+  clear() {
+    this.head = this.tail = null;
+    this.length = 0;
+  }
 }
 
 module.exports = BufferList;
