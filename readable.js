@@ -44,6 +44,13 @@ class Readable extends EventEmitter {
 
     return ret;
   }
+
+  on(eventName, listener) {
+    super.on(eventName, listener);
+
+    if (eventName === 'data')
+      this.resume();
+  }
 }
 
 module.exports = Readable;
