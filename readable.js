@@ -27,10 +27,12 @@ class Readable extends EventEmitter {
 
   resume() {
     const state = this._readableState;
-    state.flowing = true;
-    if (!state.resumeScheduled) {
-      state.resumeScheduled = true;
-      process.nextTick(this._resume.bind(this));
+    if (!state.flowing) {
+      state.flowing = true;
+      if (!state.resumeScheduled) {
+        state.resumeScheduled = true;
+        process.nextTick(this._resume.bind(this));
+      }
     }
   }
 
@@ -38,9 +40,27 @@ class Readable extends EventEmitter {
     const state = this._readableState;
     state.resumeScheduled = false;
     this.emit('resume');
-    while (this.read() !== null);
+    this._flow();
   }
 
+  _flow() {
+    const state = this._readableState;
+    while (state.flowing && this.read() !== null);
+  }
+
+  pause() {
+    const state = this._readableState;
+    if (state.flowing !== false) {
+      state.flowing = false;
+      this.emit('pause');
+    }
+    return this;
+  }
+
+  isPaused() {
+    return this._readableState.flowing === false;
+  }
+  
   read() {
     const state = this._readableState;
 
@@ -59,8 +79,11 @@ class Readable extends EventEmitter {
   on(eventName, listener) {
     super.on(eventName, listener);
 
-    if (eventName === 'data')
-      this.resume();
+    const state = this._readableState;
+    if (eventName === 'data') {
+      if (state.flowing !== false)
+        this.resume();
+    }
   }
 }
 
