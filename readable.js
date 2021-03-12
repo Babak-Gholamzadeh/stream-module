@@ -6,6 +6,8 @@ class ReadableState {
     this.length = 0;
     this.flowing = null;
     this.resumeScheduled = false;
+    this.reading = false;
+    this.sync = true;
   }
 }
 
@@ -17,7 +19,9 @@ class Readable extends EventEmitter {
 
   push(chunk) {
     const state = this._readableState;
-    if (state.flowing && this.listenerCount('data') > 0 && state.length === 0) {
+    state.reading = false;
+
+    if (state.flowing && this.listenerCount('data') > 0 && state.length === 0 && !state.sync) {
       this.emit('data', chunk);
     } else {
       state.length += chunk.length;
@@ -64,6 +68,13 @@ class Readable extends EventEmitter {
   read() {
     const state = this._readableState;
 
+    if (!state.reading) {
+      state.sync = true;
+      state.reading = true;
+      this._read();
+      state.sync = false;
+    }
+
     let ret = null;
     if (state.length > 0)
       ret = state.buffer.shift();
@@ -84,6 +95,10 @@ class Readable extends EventEmitter {
       if (state.flowing !== false)
         this.resume();
     }
+  }
+
+  _read() {
+    throw new Error('_read method must be implemented');
   }
 }
 
