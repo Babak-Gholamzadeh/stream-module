@@ -5,6 +5,7 @@ class ReadableState {
     this.buffer = new BufferList();
     this.length = 0;
     this.flowing = null;
+    this.resumeScheduled = false;
   }
 }
 
@@ -27,6 +28,16 @@ class Readable extends EventEmitter {
   resume() {
     const state = this._readableState;
     state.flowing = true;
+    if (!state.resumeScheduled) {
+      state.resumeScheduled = true;
+      process.nextTick(this._resume.bind(this));
+    }
+  }
+
+  _resume() {
+    const state = this._readableState;
+    state.resumeScheduled = false;
+    this.emit('resume');
     while (this.read() !== null);
   }
 
