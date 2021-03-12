@@ -1,20 +1,21 @@
 const EventEmitter = require('./events');
 const BufferList = require('./buffer-list');
 class ReadableState {
-  constructor() {
+  constructor({ highWaterMark = 16 * 1024 }) {
     this.buffer = new BufferList();
     this.length = 0;
     this.flowing = null;
     this.resumeScheduled = false;
     this.reading = false;
     this.sync = true;
+    this.highWaterMark = highWaterMark;
   }
 }
 
 class Readable extends EventEmitter {
-  constructor() {
+  constructor(options = {}) {
     super();
-    this._readableState = new ReadableState();
+    this._readableState = new ReadableState(options);
   }
 
   push(chunk) {
@@ -27,6 +28,8 @@ class Readable extends EventEmitter {
       state.length += chunk.length;
       state.buffer.push(chunk);
     }
+
+    return state.length < state.highWaterMark;
   }
 
   resume() {
@@ -68,16 +71,28 @@ class Readable extends EventEmitter {
   read() {
     const state = this._readableState;
 
-    if (!state.reading) {
+    let n = this._howMuchToRead();
+
+    let doRead = false;
+
+    if (state.length - n < state.highWaterMark)
+      doRead = true;
+
+    if (state.reading)
+      doRead = false;
+    else if (doRead) {
       state.sync = true;
       state.reading = true;
-      this._read();
+      this._read(state.highWaterMark);
       state.sync = false;
+
+      if (!state.reading)
+        n = this._howMuchToRead();
     }
 
     let ret = null;
     if (state.length > 0)
-      ret = state.buffer.shift();
+      ret = this._fromList();
 
     if (ret !== null) {
       state.length -= ret.length;
@@ -99,6 +114,18 @@ class Readable extends EventEmitter {
 
   _read() {
     throw new Error('_read method must be implemented');
+  }
+
+  _howMuchToRead() {
+    const state = this._readableState;
+    if (state.length === 0)
+      return 0;
+    return state.buffer.first().length;
+  }
+
+  _fromList() {
+    const state = this._readableState;
+    return state.buffer.shift();
   }
 }
 
