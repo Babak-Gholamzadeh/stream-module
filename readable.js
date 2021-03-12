@@ -68,10 +68,17 @@ class Readable extends EventEmitter {
     return this._readableState.flowing === false;
   }
   
-  read() {
+  read(n) {
     const state = this._readableState;
 
-    let n = this._howMuchToRead();
+    if (n === undefined) {
+      n = NaN;
+    } else if (!Number.isInteger(n)) {
+      n = parseInt(n, 10);
+    }
+    const nOrig = n;
+
+    n = this._howMuchToRead(n);
 
     let doRead = false;
 
@@ -87,15 +94,15 @@ class Readable extends EventEmitter {
       state.sync = false;
 
       if (!state.reading)
-        n = this._howMuchToRead();
+        n = this._howMuchToRead(nOrig);
     }
 
     let ret = null;
-    if (state.length > 0)
-      ret = this._fromList();
+    if (n > 0)
+      ret = this._fromList(n);
 
     if (ret !== null) {
-      state.length -= ret.length;
+      state.length -= n;
       this.emit('data', ret);
     }
 
@@ -116,16 +123,35 @@ class Readable extends EventEmitter {
     throw new Error('_read method must be implemented');
   }
 
-  _howMuchToRead() {
+  _howMuchToRead(n) {
     const state = this._readableState;
-    if (state.length === 0)
+    if (n <= 0 || state.length === 0)
       return 0;
-    return state.buffer.first().length;
+    if (Number.isNaN(n)) {
+      if (state.flowing && state.length)
+        return state.buffer.first().length;
+      return state.length;
+    }
+    if (n <= state.length)
+      return n;
+    return 0;
   }
 
-  _fromList() {
+  _fromList(n) {
     const state = this._readableState;
-    return state.buffer.shift();
+    if (state.length === 0)
+      return null;
+    let ret;
+    if (n >= state.length) {
+      if (state.buffer.length === 1)
+        ret = state.buffer.first();
+      else
+        ret = state.buffer.concat(state.length);
+      state.buffer.clear();
+    } else {
+      ret = state.buffer.consume(n);
+    }
+    return ret;
   }
 }
 
