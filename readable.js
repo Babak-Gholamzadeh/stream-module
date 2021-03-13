@@ -78,6 +78,9 @@ class Readable extends EventEmitter {
     }
     const nOrig = n;
 
+    if (n > state.highWaterMark)
+      state.highWaterMark = this._computeNewHighWaterMark(n);
+
     n = this._howMuchToRead(n);
 
     let doRead = false;
@@ -152,6 +155,22 @@ class Readable extends EventEmitter {
       ret = state.buffer.consume(n);
     }
     return ret;
+  }
+
+  _computeNewHighWaterMark(n) {
+    const MAX_HWM = 0x40000000;
+    if (n >= MAX_HWM) {
+      n = MAX_HWM;
+    } else {
+      n--;
+      n |= n >>> 1;
+      n |= n >>> 2;
+      n |= n >>> 4;
+      n |= n >>> 8;
+      n |= n >>> 16;
+      n++;
+    }
+    return n;
   }
 }
 
