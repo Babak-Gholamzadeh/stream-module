@@ -20,6 +20,8 @@ class ReadableState {
     this.needReadable = false;
     this.readableListening = false;
     this.readingMore = false;
+    this.ended = false;
+    this.endEmitted = false;
   }
 }
 
@@ -58,9 +60,16 @@ class Readable extends EventEmitter {
       }
     }
 
-    if (state.objectMode || (chunk && chunk.length > 0)) {
+    if (chunk === null) {
+      state.reading = false;
+      this._onEofChunk();
+    } else if (state.objectMode || (chunk && chunk.length > 0)) {
       if (addToFront) {
+        if (state.endEmitted)
+          throw new Error('cannot shift chunk after stream has already been ended');
         this._addChunk(chunk, true);
+      } else if (state.ended) {
+        throw new Error('cannot push chunk after stream has already been ended');
       } else {
         state.reading = false;
         this._addChunk(chunk, false);
@@ -70,7 +79,7 @@ class Readable extends EventEmitter {
       this._maybeReadMore();
     }
 
-    return state.length < state.highWaterMark;
+    return !state.ended && state.length < state.highWaterMark;
   }
 
   _addChunk(chunk, addToFront) {
@@ -88,6 +97,14 @@ class Readable extends EventEmitter {
         this._emitReadable();
     }
     this._maybeReadMore();
+  }
+
+  _onEofChunk() {
+    const state = this._readableState;
+    if (state.ended) return;
+    state.ended = true;
+    if (state.sync)
+      this._emitReadable();
   }
 
   resume() {
@@ -152,12 +169,18 @@ class Readable extends EventEmitter {
 
     n = this._howMuchToRead(n);
 
+    if (n === 0 && state.ended) {
+      if (state.length === 0)
+        this._endReadable();
+      return null;
+    }
+
     let doRead = false;
 
     if (state.length - n < state.highWaterMark)
       doRead = true;
 
-    if (state.reading)
+    if (state.reading || state.ended)
       doRead = false;
     else if (doRead) {
       state.sync = true;
@@ -184,7 +207,10 @@ class Readable extends EventEmitter {
     }
 
     if (state.length === 0) {
-      state.needReadable = true;
+      if (!state.ended)
+        state.needReadable = true;
+      if (nOrig !== n && state.ended)
+        this._endReadable();
     }
 
     if (ret !== null)
@@ -223,7 +249,7 @@ class Readable extends EventEmitter {
 
   _howMuchToRead(n) {
     const state = this._readableState;
-    if (n <= 0 || state.length === 0)
+    if (n <= 0 || (state.length === 0 && state.ended))
       return 0;
     if (state.objectMode)
       return 1;
@@ -234,7 +260,7 @@ class Readable extends EventEmitter {
     }
     if (n <= state.length)
       return n;
-    return 0;
+    return state.ended ? state.length : 0;
   }
 
   _fromList(n) {
@@ -278,11 +304,14 @@ class Readable extends EventEmitter {
     if (!state.emittedReadable) {
       state.emittedReadable = true;
       process.nextTick(() => {
-        if (state.length) {
+        if (state.length || state.ended) {
           this.emit('readable');
           state.emittedReadable = false;
         }
-        state.needReadable = !state.flowing && state.length <= state.highWaterMark;
+        state.needReadable =
+          !state.flowing &&
+          !state.ended &&
+          state.length <= state.highWaterMark;
         this._flow();
       });
     }
@@ -293,13 +322,26 @@ class Readable extends EventEmitter {
     if (!state.readingMore) {
       state.readingMore = true;
       process.nextTick(() => {
-        while (!state.reading && state.length < state.highWaterMark) {
+        while (!state.reading && state.length < state.highWaterMark && !state.ended) {
           const len = state.length;
           this.read(0);
           if (len === state.length)
             break;
         }
         state.readingMore = false;
+      });
+    }
+  }
+
+  _endReadable() {
+    const state = this._readableState;
+    if (!state.endEmitted) {
+      state.ended = true;
+      process.nextTick(() => {
+        if (!state.endEmitted && state.length === 0) {
+          state.endEmitted = true;
+          this.emit('end');
+        }
       });
     }
   }
