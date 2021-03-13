@@ -12,6 +12,7 @@ class ReadableState {
     this.emittedReadable = false;
     this.needReadable = false;
     this.readableListening = false;
+    this.readingMore = false;
   }
 }
 
@@ -34,6 +35,8 @@ class Readable extends EventEmitter {
       if (state.needReadable)
         this._emitReadable();
     }
+
+    this._maybeReadMore();
 
     return state.length < state.highWaterMark;
   }
@@ -228,6 +231,22 @@ class Readable extends EventEmitter {
         }
         state.needReadable = !state.flowing && state.length <= state.highWaterMark;
         this._flow();
+      });
+    }
+  }
+
+  _maybeReadMore() {
+    const state = this._readableState;
+    if (!state.readingMore) {
+      state.readingMore = true;
+      process.nextTick(() => {
+        while (!state.reading && state.length < state.highWaterMark) {
+          const len = state.length;
+          this.read(0);
+          if (len === state.length)
+            break;
+        }
+        state.readingMore = false;
       });
     }
   }
