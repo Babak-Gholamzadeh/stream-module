@@ -345,6 +345,24 @@ class Readable extends EventEmitter {
       });
     }
   }
+
+  removeListener(eventName, callback) {
+    super.removeListener(eventName, callback);
+
+    const state = this._readableState;
+    if (eventName === 'readable') {
+      process.nextTick(() => {
+        state.readableListening = this.listenerCount('readable') > 0;
+        if (state.resumeScheduled) {
+          state.flowing = true;
+        } else if (this.listenerCount('data') > 0) {
+          this.resume();
+        } else if (!state.readableListening) {
+          state.flowing = null;
+        }
+      });
+    }
+  }
 }
 
 module.exports = Readable;
