@@ -9,6 +9,8 @@ class ReadableState {
     this.reading = false;
     this.sync = true;
     this.highWaterMark = highWaterMark;
+    this.emittedReadable = false;
+    this.needReadable = false;
   }
 }
 
@@ -27,6 +29,9 @@ class Readable extends EventEmitter {
     } else {
       state.length += chunk.length;
       state.buffer.push(chunk);
+
+      if (state.needReadable)
+        this._emitReadable();
     }
 
     return state.length < state.highWaterMark;
@@ -93,6 +98,10 @@ class Readable extends EventEmitter {
     else if (doRead) {
       state.sync = true;
       state.reading = true;
+
+      if (state.length === 0)
+        state.needReadable = true;
+      
       this._read(state.highWaterMark);
       state.sync = false;
 
@@ -104,10 +113,18 @@ class Readable extends EventEmitter {
     if (n > 0)
       ret = this._fromList(n);
 
-    if (ret !== null) {
+    if (ret === null) {
+      state.needReadable = state.length <= state.highWaterMark;
+    } else {
       state.length -= n;
-      this.emit('data', ret);
     }
+
+    if (state.length === 0) {
+      state.needReadable = true;
+    }
+
+    if (ret !== null)
+      this.emit('data', ret);
 
     return ret;
   }
@@ -119,6 +136,8 @@ class Readable extends EventEmitter {
     if (eventName === 'data') {
       if (state.flowing !== false)
         this.resume();
+    } else if (eventName === 'readable') {
+      state.needReadable = true;
     }
   }
 
@@ -171,6 +190,20 @@ class Readable extends EventEmitter {
       n++;
     }
     return n;
+  }
+
+  _emitReadable() {
+    const state = this._readableState;
+    state.needReadable = false;
+    if (!state.emittedReadable) {
+      state.emittedReadable = true;
+      process.nextTick(() => {
+        if (state.length) {
+          this.emit('readable');
+          state.emittedReadable = false;
+        }
+      });
+    }
   }
 }
 
