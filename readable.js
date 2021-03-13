@@ -11,6 +11,7 @@ class ReadableState {
     this.highWaterMark = highWaterMark;
     this.emittedReadable = false;
     this.needReadable = false;
+    this.readableListening = false;
   }
 }
 
@@ -40,7 +41,7 @@ class Readable extends EventEmitter {
   resume() {
     const state = this._readableState;
     if (!state.flowing) {
-      state.flowing = true;
+      state.flowing = !state.readableListening;
       if (!state.resumeScheduled) {
         state.resumeScheduled = true;
         process.nextTick(this._resume.bind(this));
@@ -50,9 +51,17 @@ class Readable extends EventEmitter {
 
   _resume() {
     const state = this._readableState;
+    if (!state.reading) {
+      this.read(0);
+    }
+
     state.resumeScheduled = false;
     this.emit('resume');
+
     this._flow();
+
+    if (state.flowing && !state.reading)
+      this.read(0);
   }
 
   _flow() {
@@ -85,6 +94,9 @@ class Readable extends EventEmitter {
 
     if (n > state.highWaterMark)
       state.highWaterMark = this._computeNewHighWaterMark(n);
+    
+    if (n !== 0)
+      state.emittedReadable = false;
 
     n = this._howMuchToRead(n);
 
@@ -134,10 +146,22 @@ class Readable extends EventEmitter {
 
     const state = this._readableState;
     if (eventName === 'data') {
+      state.readableListening = this.listenerCount('readable') > 0;
       if (state.flowing !== false)
         this.resume();
     } else if (eventName === 'readable') {
-      state.needReadable = true;
+      if (!state.readableListening) {
+        state.readableListening = state.needReadable = true;
+        state.flowing = false;
+        state.emittedReadable = false;
+        if (state.length) {
+          this._emitReadable();
+        } else if (!state.reading) {
+          process.nextTick(() => {
+            this.read(0);
+          });
+        }
+      }
     }
   }
 
@@ -202,6 +226,8 @@ class Readable extends EventEmitter {
           this.emit('readable');
           state.emittedReadable = false;
         }
+        state.needReadable = !state.flowing && state.length <= state.highWaterMark;
+        this._flow();
       });
     }
   }
