@@ -1,7 +1,14 @@
 const EventEmitter = require('./events');
 const BufferList = require('./buffer-list');
 class ReadableState {
-  constructor({ highWaterMark = 16 * 1024 }) {
+  constructor({
+    objectMode = false,
+    defaultEncoding = 'utf8',
+    highWaterMark = 16 * 1024,
+  }) {
+    this.objectMode = objectMode;
+    this.defaultEncoding = defaultEncoding;
+    this.encoding = null;
     this.buffer = new BufferList();
     this.length = 0;
     this.flowing = null;
@@ -22,23 +29,65 @@ class Readable extends EventEmitter {
     this._readableState = new ReadableState(options);
   }
 
-  push(chunk) {
-    const state = this._readableState;
-    state.reading = false;
+  push(chunk, encoding) {
+    return this._readableAddChunk(chunk, encoding, false);
+  }
 
-    if (state.flowing && this.listenerCount('data') > 0 && state.length === 0 && !state.sync) {
+  unshift(chunk, encoding) {
+    return this._readableAddChunk(chunk, encoding, true);
+  }
+
+  _readableAddChunk(chunk, encoding, addToFront) {
+    const state = this._readableState;
+
+    if (!state.objectMode) {
+      if (typeof chunk === 'string') {
+        encoding = encoding || state.defaultEncoding;
+        if (state.encoding !== encoding) {
+          if (addToFront && state.encoding) {
+            chunk = Buffer.from(chunk, encoding).toString(state.encoding);
+          } else {
+            chunk = Buffer.from(chunk, encoding);
+            encoding = '';
+          }
+        }
+      } else if (chunk instanceof Buffer) {
+        encoding = '';
+      } else if (chunk != null) {
+        throw new Error('invalid types! only string and buffer are accepted');
+      }
+    }
+
+    if (state.objectMode || (chunk && chunk.length > 0)) {
+      if (addToFront) {
+        this._addChunk(chunk, true);
+      } else {
+        state.reading = false;
+        this._addChunk(chunk, false);
+      }
+    } else if (!addToFront) {
+      state.reading = false;
+      this._maybeReadMore();
+    }
+
+    return state.length < state.highWaterMark;
+  }
+
+  _addChunk(chunk, addToFront) {
+    const state = this._readableState;
+    if (state.flowing && state.length === 0 && !state.sync && this.listenerCount('data') > 0) {
       this.emit('data', chunk);
     } else {
-      state.length += chunk.length;
-      state.buffer.push(chunk);
+      state.length += (state.objectMode ? 1 : chunk.length);
+      if (addToFront)
+        state.buffer.unshift(chunk);
+      else
+        state.buffer.push(chunk);
 
       if (state.needReadable)
         this._emitReadable();
     }
-
     this._maybeReadMore();
-
-    return state.length < state.highWaterMark;
   }
 
   resume() {
@@ -176,6 +225,8 @@ class Readable extends EventEmitter {
     const state = this._readableState;
     if (n <= 0 || state.length === 0)
       return 0;
+    if (state.objectMode)
+      return 1;
     if (Number.isNaN(n)) {
       if (state.flowing && state.length)
         return state.buffer.first().length;
@@ -191,7 +242,9 @@ class Readable extends EventEmitter {
     if (state.length === 0)
       return null;
     let ret;
-    if (n >= state.length) {
+    if (state.objectMode)
+      ret = state.buffer.shift();
+    else if (n >= state.length) {
       if (state.buffer.length === 1)
         ret = state.buffer.first();
       else
