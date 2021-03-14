@@ -18,6 +18,14 @@ class Transform extends Duplex {
     });
   }
 
+  _read() {
+    if (this._callback) {
+      const callback = this._callback;
+      this._callback = null;
+      callback();
+    }
+  }
+
   _transform() {
     throw new Error('_transform method must be implemented!');
   }
