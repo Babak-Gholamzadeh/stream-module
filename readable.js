@@ -22,6 +22,7 @@ class ReadableState {
     this.readingMore = false;
     this.ended = false;
     this.endEmitted = false;
+    this.pipes = [];
   }
 }
 
@@ -362,6 +363,97 @@ class Readable extends EventEmitter {
         }
       });
     }
+  }
+
+  pipe(dest) {
+    const src = this;
+    const state = this._readableState;
+
+    state.pipes.push(dest);
+
+    const onend = () => {
+      dest.end();
+    }
+    src.on('end', onend);
+
+    const onunpipe = () => {
+      cleanup();
+    };
+    dest.on('unpipe', onunpipe);
+
+    const cleanup = () => {
+      dest.removeListener('close', onclose);
+      dest.removeListener('finish', onfinish);
+      dest.removeListener('unpipe', onunpipe);
+      if (ondrain) {
+        dest.removeListener('drain', ondrain);
+      }
+      src.removeListener('end', onend);
+      src.removeListener('data', ondata);
+    };
+
+    let ondrain;
+    const pause = () => {
+      src.pause();
+
+      if (!ondrain) {
+        ondrain = this._pipeOnDrain.bind(this);
+        dest.on('drain', ondrain);
+      }
+    };
+
+    const ondata = chunk => {
+      const ret = dest.write(chunk);
+      if (ret === false) {
+        pause();
+      }
+    };
+    src.on('data', ondata);
+
+    dest.emit('pipe', src);
+
+    const onclose = () => {
+      dest.removeListener('finish', onfinish);
+      src.unpipe(dest);
+    }
+    dest.once('close', onclose);
+    const onfinish = () => {
+      dest.removeListener('close', onclose);
+      src.unpipe(dest);
+    }
+    dest.once('finish', onfinish);
+
+    return dest;
+  }
+
+  _pipeOnDrain() {
+    const state = this._readableState;
+    if (this.listenerCount('data')) {
+      state.flowing = true;
+      this._flow();
+    }
+  }
+
+  unpipe(dest) {
+    const state = this._readableState;
+    if (!dest) {
+      this.pause();
+      state.pipes.forEach(dest => {
+        dest.emit('unpipe');
+      });
+      state.pipes = [];
+      return this;
+    }
+    for (let i = 0; i < state.pipes.length; i++) {
+      if (state.pipes[i] === dest) {
+        state.pipes.splice(i, 1);
+        break;
+      }
+    }
+    if (state.pipes.length === 0)
+      this.pause();
+    dest.emit('unpipe');
+    return this;
   }
 }
 
