@@ -23,6 +23,8 @@ class ReadableState {
     this.ended = false;
     this.endEmitted = false;
     this.pipes = [];
+    this.constructed = true;
+    this.errored = null;
   }
 }
 
@@ -30,6 +32,20 @@ class Readable extends EventEmitter {
   constructor(options = {}) {
     super();
     this._readableState = new ReadableState(options);
+
+    if (typeof this._construct === 'function') {
+      const state = this._readableState;
+      state.constructed = false;
+      process.nextTick(() => {
+        this._construct(err => {
+          state.constructed = true;
+          if (err)
+            this.errored = err;
+          if (state.needReadable)
+            this._maybeReadMore();
+        });
+      });
+    }
   }
 
   push(chunk, encoding) {
@@ -181,7 +197,7 @@ class Readable extends EventEmitter {
     if (state.length - n < state.highWaterMark)
       doRead = true;
 
-    if (state.reading || state.ended)
+    if (state.reading || state.ended || state.errored || !state.constructed)
       doRead = false;
     else if (doRead) {
       state.sync = true;
@@ -320,7 +336,7 @@ class Readable extends EventEmitter {
 
   _maybeReadMore() {
     const state = this._readableState;
-    if (!state.readingMore) {
+    if (!state.readingMore && state.constructed) {
       state.readingMore = true;
       process.nextTick(() => {
         while (!state.reading && state.length < state.highWaterMark && !state.ended) {
