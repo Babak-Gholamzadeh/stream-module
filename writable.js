@@ -54,8 +54,6 @@ class Writable extends EventEmitter {
           state.constructed = true;
           if (err)
             state.errored = err;
-          if (!state.writing)
-            this._clearBuffer();
           this._finishMaybe();
         });
       });
