@@ -33,6 +33,14 @@ class Readable extends EventEmitter {
     super();
     this._readableState = new ReadableState(options);
 
+    if (options) {
+      if (typeof options.read === 'function')
+        this._read = options.read;
+  
+      if (typeof options.construct === 'function')
+        this._construct = options.construct;
+    }
+
     if (typeof this._construct === 'function') {
       const state = this._readableState;
       state.constructed = false;
